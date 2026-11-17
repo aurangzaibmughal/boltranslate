@@ -325,23 +325,29 @@ export default function BolTranslatePage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const sendToChatGPT = (text: string) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
-    showToast("Prompt copied! Opening ChatGPT...");
-    window.open(`https://chatgpt.com/?q=${encodeURIComponent(text)}`, "_blank");
+  const getActivePrompt = () => {
+    if (currentEnglish) return currentEnglish;
+    if (history.length > 0 && history[0]?.englishText) return history[0].englishText;
+    return "Hello! I am using BolTranslate to speak in Urdu and translate into English.";
   };
 
-  const sendToGemini = (text: string) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
+  const sendToChatGPT = (text?: string) => {
+    const prompt = text || getActivePrompt();
+    navigator.clipboard.writeText(prompt);
+    showToast("Prompt copied! Opening ChatGPT...");
+    window.open(`https://chatgpt.com/?q=${encodeURIComponent(prompt)}`, "_blank");
+  };
+
+  const sendToGemini = (text?: string) => {
+    const prompt = text || getActivePrompt();
+    navigator.clipboard.writeText(prompt);
     showToast("Prompt copied! Opening Google Gemini...");
     window.open("https://gemini.google.com/app", "_blank");
   };
 
-  const sendToClaude = (text: string) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text);
+  const sendToClaude = (text?: string) => {
+    const prompt = text || getActivePrompt();
+    navigator.clipboard.writeText(prompt);
     showToast("Prompt copied! Opening Claude AI...");
     window.open("https://claude.ai/new", "_blank");
   };
@@ -616,6 +622,94 @@ export default function BolTranslatePage() {
                 <Database className="w-4 h-4 text-emerald-400" /> Save to Database (boltranslate.db)
               </button>
             )}
+          </div>
+        </section>
+
+        {/* PROMINENT AI ASSISTANTS HUB (ChatGPT, Claude, Gemini) */}
+        <section className="bg-gradient-to-r from-[#10a37f]/10 via-[#0e121b] to-amber-500/10 border border-slate-800/90 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl relative overflow-hidden">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 mb-4 border-b border-slate-800/80">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#10a37f] to-amber-500 p-0.5 flex items-center justify-center">
+                <div className="w-full h-full bg-[#0c0f17] rounded-[10px] flex items-center justify-center">
+                  <Bot className="w-4 h-4 text-emerald-400" />
+                </div>
+              </div>
+              <div>
+                <h3 className="font-bold text-sm sm:text-base text-white flex items-center gap-2">
+                  Instant AI Prompter
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                    Always Ready
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Apni Urdu awaz ki translation ko 1-click mein ChatGPT, Claude ya Gemini par bhejein
+                </p>
+              </div>
+            </div>
+
+            <div className="text-[11px] font-mono text-slate-400 bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-800 flex items-center gap-1.5 self-end sm:self-auto">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Active Prompt: <span className="text-slate-200 truncate max-w-[150px]">{currentEnglish || history[0]?.englishText || "Ready"}</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* ChatGPT Big Button */}
+            <button
+              onClick={() => sendToChatGPT()}
+              className="flex items-center justify-between p-4 rounded-2xl bg-[#121622] hover:bg-[#151c2a] border border-[#10a37f]/40 hover:border-[#10a37f] shadow-lg shadow-[#10a37f]/5 hover:shadow-[#10a37f]/20 transition-all duration-200 group text-left active:scale-95 touch-manipulation"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-[#10a37f]/15 border border-[#10a37f]/40 flex items-center justify-center text-[#10a37f] group-hover:scale-110 transition-transform">
+                  <Bot className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm sm:text-base flex items-center gap-1.5">
+                    ChatGPT <span className="text-[10px] px-1.5 py-0.2 rounded bg-[#10a37f]/20 text-[#10a37f] font-mono">GPT-4o</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Prompt to ChatGPT</p>
+                </div>
+              </div>
+              <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-[#10a37f] transition-colors" />
+            </button>
+
+            {/* Claude AI Big Button */}
+            <button
+              onClick={() => sendToClaude()}
+              className="flex items-center justify-between p-4 rounded-2xl bg-[#121622] hover:bg-[#1a1824] border border-amber-500/40 hover:border-amber-400 shadow-lg shadow-amber-500/5 hover:shadow-amber-500/20 transition-all duration-200 group text-left active:scale-95 touch-manipulation"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-center text-amber-300 group-hover:scale-110 transition-transform">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm sm:text-base flex items-center gap-1.5">
+                    Claude AI <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono">Sonnet 3.5</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Prompt to Claude</p>
+                </div>
+              </div>
+              <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-amber-400 transition-colors" />
+            </button>
+
+            {/* Google Gemini Big Button */}
+            <button
+              onClick={() => sendToGemini()}
+              className="flex items-center justify-between p-4 rounded-2xl bg-[#121622] hover:bg-[#141b2c] border border-blue-500/40 hover:border-blue-400 shadow-lg shadow-blue-500/5 hover:shadow-blue-500/20 transition-all duration-200 group text-left active:scale-95 touch-manipulation"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-blue-500/15 border border-blue-500/40 flex items-center justify-center text-blue-400 group-hover:scale-110 transition-transform">
+                  <Sparkles className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="font-bold text-white text-sm sm:text-base flex items-center gap-1.5">
+                    Google Gemini <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-400 font-mono">1.5 Pro</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Prompt to Gemini</p>
+                </div>
+              </div>
+              <ExternalLink className="w-4 h-4 text-slate-500 group-hover:text-blue-400 transition-colors" />
+            </button>
           </div>
         </section>
 
