@@ -11,7 +11,19 @@
   Built with ❤️ for real-time speech translation and AI voice prompting.
 </p>
 
+<p align="center">
+  <a href="https://boltranslate-steel.vercel.app" target="_blank">
+    <img src="https://img.shields.io/badge/Live_Demo-boltranslate--steel.vercel.app-00E676?style=for-the-badge&logo=vercel&logoColor=black" alt="Live Demo" />
+  </a>
+  <a href="https://github.com/aurangzaibmughal/boltranslate" target="_blank">
+    <img src="https://img.shields.io/badge/GitHub-aurangzaibmughal%2Fboltranslate-0091EA?style=for-the-badge&logo=github" alt="GitHub Repo" />
+  </a>
+</p>
+
 ---
+
+## 🌐 Live Production URL
+👉 **[https://boltranslate-steel.vercel.app](https://boltranslate-steel.vercel.app)**
 
 ## ✨ Features
 
