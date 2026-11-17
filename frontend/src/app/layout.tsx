@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import AuthProvider from "@/components/AuthProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "BolTranslate | Urdu Voice to Real-Time English",
-  description: "Real-time Urdu voice to English translation powered by AI",
+  description: "Real-time Urdu voice to English translation powered by AI and Google OAuth",
   icons: {
     icon: "/logo.png",
   },
@@ -38,7 +39,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-[#090b10] text-slate-100 antialiased selection:bg-emerald-500 selection:text-black overflow-x-hidden`}
       >
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );
