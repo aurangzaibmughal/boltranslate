@@ -415,14 +415,17 @@ export default function BolTranslatePage() {
             {/* Google OAuth Login / User Avatar */}
             {session?.user ? (
               <div className="flex items-center gap-2">
-                <Link
-                  href="/admin"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition"
-                  title="Admin Dashboard"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="hidden xs:inline">Admin</span>
-                </Link>
+                {/* Admin Button strictly for aurangzaib.mughal@gmail.com */}
+                {session.user.email?.toLowerCase() === "aurangzaib.mughal@gmail.com" && (
+                  <Link
+                    href="/admin"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition"
+                    title="Super Admin Dashboard"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden xs:inline">Admin</span>
+                  </Link>
+                )}
                 <div className="flex items-center gap-2 bg-[#121622] border border-slate-700/80 rounded-full py-1 pl-1 pr-2.5">
                   {session.user.image ? (
                     <img

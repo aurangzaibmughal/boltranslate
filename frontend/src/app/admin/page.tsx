@@ -37,16 +37,9 @@ export default function AdminDashboardPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Aurangzaib bhai is the super admin
-  const adminEmails = [
-    "aurangzaib.mughal@gmail.com",
-    "aurangzaibmughal@gmail.com",
-  ];
-
-  const isAdmin =
-    session?.user?.email &&
-    (adminEmails.includes(session.user.email.toLowerCase()) ||
-      session.user.email.toLowerCase().includes("aurangzaib"));
+  // Strictly locked to only aurangzaib.mughal@gmail.com
+  const SUPER_ADMIN_EMAIL = "aurangzaib.mughal@gmail.com";
+  const isAdmin = session?.user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
