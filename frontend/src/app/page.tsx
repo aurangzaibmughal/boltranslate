@@ -65,39 +65,25 @@ export default function BolTranslatePage() {
     }
   }, []);
 
-  // Fetch SQLite history from backend
-  const loadHistoryFromDB = async (baseUrl: string) => {
+  // Fetch history from Next.js Turso API
+  const loadHistoryFromDB = async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/history`);
+      const res = await fetch("/api/history");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data)) {
           setHistory(data);
           return;
         }
       }
     } catch (err) {
-      console.log("Database fetch fallback:", err);
+      console.log("Turso fetch error:", err);
     }
-    // Fallback default sample if empty
-    setHistory((prev) =>
-      prev.length > 0
-        ? prev
-        : [
-            {
-              id: "demo-1",
-              timestamp: "09:15 AM",
-              urduText: "السلام علیکم، آپ کیسے ہیں؟",
-              englishText: "Hello, how are you?",
-              isFavorite: true,
-            },
-          ]
-    );
   };
 
   useEffect(() => {
-    loadHistoryFromDB(apiBaseUrl);
-  }, [apiBaseUrl]);
+    loadHistoryFromDB();
+  }, []);
 
   // WebSocket Connection
   useEffect(() => {
@@ -241,7 +227,7 @@ export default function BolTranslatePage() {
     }, 1200);
   };
 
-  // Persist record to SQLite
+  // Persist record to Turso Cloud DB
   const commitNewRecord = async (urdu: string, english: string) => {
     if (!urdu && !english) return;
     const optimisticItem: TranslationItem = {
@@ -255,7 +241,7 @@ export default function BolTranslatePage() {
     setHistory((prev) => [optimisticItem, ...prev]);
 
     try {
-      const res = await fetch(`${apiBaseUrl}/api/history`, {
+      const res = await fetch("/api/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urdu, english }),
@@ -265,49 +251,49 @@ export default function BolTranslatePage() {
         setHistory((prev) =>
           prev.map((item) => (item.id === optimisticItem.id ? { ...item, id: saved.id } : item))
         );
-        showToast("Saved to SQLite Database!");
+        showToast("Saved to Turso Cloud Database!");
       }
     } catch (e) {
-      console.log("Local fallback saved:", e);
+      console.log("Save error:", e);
     }
 
     setCurrentUrdu("");
     setCurrentEnglish("");
   };
 
-  // Toggle Favorite (Star) in SQLite
+  // Toggle Favorite in Turso Cloud DB
   const toggleFavorite = async (id: string) => {
     setHistory((prev) =>
       prev.map((item) => (item.id === id ? { ...item, isFavorite: !item.isFavorite } : item))
     );
 
     try {
-      await fetch(`${apiBaseUrl}/api/history/${id}/favorite`, { method: "PATCH" });
+      await fetch(`/api/history?id=${id}`, { method: "PATCH" });
     } catch (e) {
       console.log("Error toggling favorite:", e);
     }
   };
 
-  // Delete Record from SQLite
+  // Delete Record from Turso Cloud DB
   const deleteRecord = async (id: string) => {
     setHistory((prev) => prev.filter((item) => item.id !== id));
-    showToast("Translation deleted");
+    showToast("Translation deleted from Cloud DB");
 
     try {
-      await fetch(`${apiBaseUrl}/api/history/${id}`, { method: "DELETE" });
+      await fetch(`/api/history?id=${id}`, { method: "DELETE" });
     } catch (e) {
       console.log("Error deleting record:", e);
     }
   };
 
-  // Clear All History from SQLite
+  // Clear All History from Turso Cloud DB
   const clearAllHistory = async () => {
-    if (!confirm("Are you sure you want to clear all history from the database?")) return;
+    if (!confirm("Are you sure you want to clear all history from Turso Cloud Database?")) return;
     setHistory([]);
-    showToast("Database history cleared");
+    showToast("Cloud Database history cleared");
 
     try {
-      await fetch(`${apiBaseUrl}/api/history`, { method: "DELETE" });
+      await fetch("/api/history", { method: "DELETE" });
     } catch (e) {
       console.log("Error clearing history:", e);
     }
@@ -409,7 +395,7 @@ export default function BolTranslatePage() {
                   Bol<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">Translate</span>
                 </span>
                 <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
-                  SQLite DB
+                  Turso Cloud DB
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 hidden xs:block sm:block truncate">
@@ -746,11 +732,11 @@ export default function BolTranslatePage() {
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold text-base sm:text-lg text-white">Database History</h3>
                   <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                    SQLite (boltranslate.db)
+                    Turso Cloud SQLite
                   </span>
                 </div>
                 <p className="text-[11px] sm:text-xs text-slate-400">
-                  Permanently stored translations with favorites and deletion
+                  24/7 Cloud saved translations with favorites and deletion
                 </p>
               </div>
             </div>
