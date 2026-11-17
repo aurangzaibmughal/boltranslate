@@ -1,0 +1,907 @@
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import Image from "next/image";
+import {
+  Mic,
+  MicOff,
+  Volume2,
+  Copy,
+  Check,
+  RotateCcw,
+  Download,
+  Settings,
+  Radio,
+  Sparkles,
+  ArrowRightLeft,
+  Activity,
+  Layers,
+  ChevronRight,
+  Bot,
+  ExternalLink,
+  Star,
+  Trash2,
+  Database,
+} from "lucide-react";
+
+interface TranslationItem {
+  id: string;
+  timestamp: string;
+  urduText: string;
+  englishText: string;
+  isFavorite?: boolean;
+}
+
+export default function BolTranslatePage() {
+  const [isRecording, setIsRecording] = useState(false);
+  const [currentUrdu, setCurrentUrdu] = useState("");
+  const [currentEnglish, setCurrentEnglish] = useState("");
+  const [activeTab, setActiveTab] = useState<"both" | "urdu" | "english">("both");
+  const [historyFilter, setHistoryFilter] = useState<"all" | "favorites">("all");
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [history, setHistory] = useState<TranslationItem[]>([]);
+  const [isConnected, setIsConnected] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState<number[]>(new Array(20).fill(10));
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [showSettings, setShowSettings] = useState(false);
+  const [backendUrl, setBackendUrl] = useState("ws://localhost:8000/ws");
+  const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
+  const [statusMessage, setStatusMessage] = useState("Tap mic to speak in Urdu");
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-detect backend host for PC & Mobile
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hostname) {
+      const host = window.location.hostname;
+      setBackendUrl(`ws://${host}:8000/ws`);
+      setApiBaseUrl(`http://${host}:8000`);
+    }
+  }, []);
+
+  // Fetch SQLite history from backend
+  const loadHistoryFromDB = async (baseUrl: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/history`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setHistory(data);
+          return;
+        }
+      }
+    } catch (err) {
+      console.log("Database fetch fallback:", err);
+    }
+    // Fallback default sample if empty
+    setHistory((prev) =>
+      prev.length > 0
+        ? prev
+        : [
+            {
+              id: "demo-1",
+              timestamp: "09:15 AM",
+              urduText: "السلام علیکم، آپ کیسے ہیں؟",
+              englishText: "Hello, how are you?",
+              isFavorite: true,
+            },
+          ]
+    );
+  };
+
+  useEffect(() => {
+    loadHistoryFromDB(apiBaseUrl);
+  }, [apiBaseUrl]);
+
+  // WebSocket Connection
+  useEffect(() => {
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(backendUrl);
+      ws.onopen = () => {
+        setIsConnected(true);
+        setStatusMessage("Connected to Python AI Engine & SQLite DB");
+      };
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.urdu) setCurrentUrdu(data.urdu);
+          if (data.english) setCurrentEnglish(data.english);
+          if (data.final) {
+            commitNewRecord(data.urdu, data.english);
+          }
+        } catch {
+          setCurrentEnglish(event.data);
+        }
+      };
+      ws.onclose = () => setIsConnected(false);
+      ws.onerror = () => setIsConnected(false);
+      socketRef.current = ws;
+    } catch {
+      setIsConnected(false);
+    }
+
+    return () => {
+      if (ws) ws.close();
+    };
+  }, [backendUrl]);
+
+  // Audio recording timer
+  useEffect(() => {
+    if (isRecording) {
+      setRecordingDuration(0);
+      timerRef.current = setInterval(() => {
+        setRecordingDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setRecordingDuration(0);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isRecording]);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Start Mic
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 64;
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      const updateVisualizer = () => {
+        if (!analyserRef.current) return;
+        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+        analyserRef.current.getByteFrequencyData(dataArray);
+
+        const bars: number[] = [];
+        for (let i = 0; i < 20; i++) {
+          const val = dataArray[i % dataArray.length];
+          bars.push(Math.max(8, (val / 255) * 85));
+        }
+        setAudioLevel(bars);
+        animationFrameRef.current = requestAnimationFrame(updateVisualizer);
+      };
+      updateVisualizer();
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+          socketRef.current.send(event.data);
+        }
+      };
+
+      mediaRecorder.start(350);
+      setIsRecording(true);
+      setStatusMessage("Listening... Speak clearly in Urdu (اردو میں بولیں)");
+
+      if (!isConnected) {
+        simulateLiveTranslation();
+      }
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      alert("Microphone permission denied or device not found. Please allow microphone access.");
+    }
+  };
+
+  // Stop Recording
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+    }
+
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+    }
+
+    setIsRecording(false);
+    setAudioLevel(new Array(20).fill(10));
+    setStatusMessage("Recording stopped. Ready to translate.");
+  };
+
+  const simulateLiveTranslation = () => {
+    const demoPhrases = [
+      { urdu: "میرا نام اورنگزیب ہے اور یہ بول ٹرانسلیٹ ہے۔", english: "My name is Aurangzaib and this is BolTranslate." },
+      { urdu: "ہماری گفتگو اب براہ راست ڈیٹا بیس میں محفوظ ہو رہی ہے۔", english: "Our conversation is now being directly saved to the database." },
+      { urdu: "یہ پرامپٹ چیٹ جی پی ٹی اور جیمینائی کو بھیجیں۔", english: "Send this prompt to ChatGPT and Gemini." },
+    ];
+    const randomItem = demoPhrases[Math.floor(Math.random() * demoPhrases.length)];
+
+    setTimeout(() => {
+      setCurrentUrdu(randomItem.urdu);
+      setTimeout(() => {
+        setCurrentEnglish(randomItem.english);
+      }, 700);
+    }, 1200);
+  };
+
+  // Persist record to SQLite
+  const commitNewRecord = async (urdu: string, english: string) => {
+    if (!urdu && !english) return;
+    const optimisticItem: TranslationItem = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      urduText: urdu || "اردو آواز",
+      englishText: english || "English Translation",
+      isFavorite: false,
+    };
+
+    setHistory((prev) => [optimisticItem, ...prev]);
+
+    try {
+      const res = await fetch(`${apiBaseUrl}/api/history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urdu, english }),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setHistory((prev) =>
+          prev.map((item) => (item.id === optimisticItem.id ? { ...item, id: saved.id } : item))
+        );
+        showToast("Saved to SQLite Database!");
+      }
+    } catch (e) {
+      console.log("Local fallback saved:", e);
+    }
+
+    setCurrentUrdu("");
+    setCurrentEnglish("");
+  };
+
+  // Toggle Favorite (Star) in SQLite
+  const toggleFavorite = async (id: string) => {
+    setHistory((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, isFavorite: !item.isFavorite } : item))
+    );
+
+    try {
+      await fetch(`${apiBaseUrl}/api/history/${id}/favorite`, { method: "PATCH" });
+    } catch (e) {
+      console.log("Error toggling favorite:", e);
+    }
+  };
+
+  // Delete Record from SQLite
+  const deleteRecord = async (id: string) => {
+    setHistory((prev) => prev.filter((item) => item.id !== id));
+    showToast("Translation deleted");
+
+    try {
+      await fetch(`${apiBaseUrl}/api/history/${id}`, { method: "DELETE" });
+    } catch (e) {
+      console.log("Error deleting record:", e);
+    }
+  };
+
+  // Clear All History from SQLite
+  const clearAllHistory = async () => {
+    if (!confirm("Are you sure you want to clear all history from the database?")) return;
+    setHistory([]);
+    showToast("Database history cleared");
+
+    try {
+      await fetch(`${apiBaseUrl}/api/history`, { method: "DELETE" });
+    } catch (e) {
+      console.log("Error clearing history:", e);
+    }
+  };
+
+  const speakEnglish = (text: string) => {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US";
+      utterance.rate = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } else {
+      alert("Text to speech not supported in this browser.");
+    }
+  };
+
+  const copyText = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    showToast("Text copied to clipboard!");
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const sendToChatGPT = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast("Prompt copied! Opening ChatGPT...");
+    window.open(`https://chatgpt.com/?q=${encodeURIComponent(text)}`, "_blank");
+  };
+
+  const sendToGemini = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast("Prompt copied! Opening Google Gemini...");
+    window.open("https://gemini.google.com/app", "_blank");
+  };
+
+  const sendToClaude = (text: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    showToast("Prompt copied! Opening Claude AI...");
+    window.open("https://claude.ai/new", "_blank");
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const exportHistory = () => {
+    const filtered = historyFilter === "favorites" ? history.filter((i) => i.isFavorite) : history;
+    const content = filtered
+      .map((item) => `[${item.timestamp}] ${item.isFavorite ? "⭐" : ""}\nUrdu: ${item.urduText}\nEnglish: ${item.englishText}\n------------------------`)
+      .join("\n\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `BolTranslate_History_${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const displayedHistory = historyFilter === "favorites" ? history.filter((i) => i.isFavorite) : history;
+
+  return (
+    <div className="flex flex-col min-h-screen bg-[#090b10] text-slate-100 relative overflow-x-hidden pb-12 sm:pb-0">
+      {/* Toast Alert */}
+      {toastMessage && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-emerald-500 text-black font-semibold text-xs sm:text-sm px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 animate-in fade-in slide-in-from-top-4 duration-200">
+          <Sparkles className="w-4 h-4" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Background Neon Glow Orbs */}
+      <div className="absolute top-[-10%] left-[-10%] w-[320px] sm:w-[500px] h-[320px] sm:h-[500px] bg-emerald-500/10 rounded-full blur-[90px] sm:blur-[120px] pointer-events-none" />
+      <div className="absolute top-[20%] right-[-10%] w-[350px] sm:w-[550px] h-[350px] sm:h-[550px] bg-blue-500/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
+
+      {/* Top Navbar */}
+      <header className="border-b border-slate-800/80 bg-[#0d1017]/85 backdrop-blur-md sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0 rounded-xl overflow-hidden border border-slate-700/60 shadow-md shadow-emerald-500/10 bg-[#121620] p-1 flex items-center justify-center">
+              <Image
+                src="/logo.png"
+                alt="BolTranslate Logo"
+                width={40}
+                height={40}
+                className="object-contain"
+                priority
+              />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-xl sm:text-2xl font-black tracking-tight text-white truncate">
+                  Bol<span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">Translate</span>
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
+                  SQLite DB
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 hidden xs:block sm:block truncate">
+                Urdu Voice to Real-Time English &amp; SQLite Storage
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <div
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[11px] sm:text-xs font-medium border ${
+                isConnected
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isConnected ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
+                }`}
+              />
+              <span className="hidden sm:inline">
+                {isConnected ? "Engine & DB: Live" : "Local Standby"}
+              </span>
+              <span className="sm:hidden">{isConnected ? "Live" : "Standby"}</span>
+            </div>
+
+            <button
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-2 rounded-xl bg-slate-800/80 active:bg-slate-700 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/60 transition touch-manipulation"
+              title="Connection Settings"
+              aria-label="Settings"
+            >
+              <Settings className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+          </div>
+        </div>
+
+        {showSettings && (
+          <div className="bg-[#10141f] border-b border-slate-800 px-4 py-3.5 animate-in slide-in-from-top duration-200">
+            <div className="max-w-3xl mx-auto flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="flex-1">
+                <label className="text-[11px] sm:text-xs text-slate-400 block mb-1">
+                  FastAPI WebSocket Endpoint URL (Python Backend):
+                </label>
+                <input
+                  type="text"
+                  value={backendUrl}
+                  onChange={(e) => setBackendUrl(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs sm:text-sm text-slate-200 focus:outline-none focus:border-emerald-500"
+                  placeholder="ws://localhost:8000/ws"
+                />
+              </div>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-500 hover:bg-emerald-600 text-black transition active:scale-95"
+              >
+                Save &amp; Connect
+              </button>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3.5 sm:px-6 lg:px-8 py-5 sm:py-8 flex flex-col gap-5 sm:gap-8">
+        
+        {/* Hero Section */}
+        <section className="bg-gradient-to-b from-[#111522] to-[#0c0f17] border border-slate-800/90 rounded-2xl sm:rounded-3xl p-4 sm:p-8 shadow-2xl relative">
+          <div className="flex flex-col items-center text-center gap-4 sm:gap-6">
+            <div className="inline-flex max-w-full items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-slate-900/90 border border-slate-700/70 text-[11px] sm:text-xs font-medium text-slate-300">
+              <Activity className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 animate-pulse" />
+              <span className="truncate">{statusMessage}</span>
+              {isRecording && (
+                <span className="font-mono text-emerald-400 font-bold bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-500/30 flex-shrink-0">
+                  {formatTime(recordingDuration)}
+                </span>
+              )}
+            </div>
+
+            {/* Central Mic */}
+            <div className="relative flex items-center justify-center my-1 sm:my-2">
+              <div
+                className={`absolute w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 border-dashed transition-all duration-700 pointer-events-none ${
+                  isRecording
+                    ? "border-emerald-400/80 animate-spin-slow scale-110 shadow-lg shadow-emerald-500/20"
+                    : "border-slate-700/60"
+                }`}
+              />
+
+              {isRecording && (
+                <div className="absolute w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-r from-emerald-500 to-blue-500 blur-xl opacity-60 animate-pulse pointer-events-none" />
+              )}
+
+              <button
+                onClick={isRecording ? stopRecording : startRecording}
+                className={`relative z-10 w-24 h-24 sm:w-28 sm:h-28 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-2xl touch-manipulation active:scale-95 group ${
+                  isRecording
+                    ? "bg-gradient-to-tr from-emerald-500 to-teal-400 text-black scale-105 shadow-emerald-500/50"
+                    : "bg-gradient-to-tr from-[#161c2b] to-[#1e2638] text-white hover:border-emerald-500/60 border border-slate-700 hover:shadow-emerald-500/20"
+                }`}
+                aria-label={isRecording ? "Stop recording" : "Start speaking in Urdu"}
+              >
+                {isRecording ? (
+                  <>
+                    <MicOff className="w-7 h-7 sm:w-9 sm:h-9 transition-transform" />
+                    <span className="text-[10px] sm:text-[11px] font-bold mt-1 tracking-wider uppercase">
+                      Stop
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-7 h-7 sm:w-9 sm:h-9 text-emerald-400 group-hover:text-emerald-300 transition-transform" />
+                    <span className="text-[10px] sm:text-[11px] font-semibold text-slate-300 group-hover:text-white mt-1 tracking-wider uppercase">
+                      Urdu Bolain
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Waveform */}
+            <div className="w-full max-w-xs sm:max-w-md h-12 sm:h-14 bg-slate-950/60 rounded-xl sm:rounded-2xl border border-slate-800/80 px-3 sm:px-4 flex items-center justify-center gap-1 sm:gap-1.5 shadow-inner">
+              {audioLevel.map((height, i) => (
+                <div
+                  key={i}
+                  style={{ height: `${height}%` }}
+                  className={`w-1.5 sm:w-2 rounded-full transition-all duration-75 ${
+                    isRecording
+                      ? i < 10
+                        ? "bg-gradient-to-t from-emerald-600 to-emerald-400"
+                        : "bg-gradient-to-t from-blue-600 to-cyan-400"
+                      : "bg-slate-800"
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* Save to Database action button */}
+            {(currentUrdu || currentEnglish) && (
+              <button
+                onClick={() => commitNewRecord(currentUrdu, currentEnglish)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800/90 active:bg-slate-700 hover:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700 flex items-center justify-center gap-2 transition"
+              >
+                <Database className="w-4 h-4 text-emerald-400" /> Save to Database (boltranslate.db)
+              </button>
+            )}
+          </div>
+        </section>
+
+        {/* Mobile Tabs */}
+        <div className="flex sm:hidden p-1 rounded-xl bg-slate-900 border border-slate-800">
+          <button
+            onClick={() => setActiveTab("both")}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
+              activeTab === "both" ? "bg-slate-800 text-white shadow" : "text-slate-400 hover:text-white"
+            }`}
+          >
+            Split View
+          </button>
+          <button
+            onClick={() => setActiveTab("urdu")}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
+              activeTab === "urdu" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "text-slate-400 hover:text-white"
+            }`}
+          >
+            Urdu (اردو)
+          </button>
+          <button
+            onClick={() => setActiveTab("english")}
+            className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition ${
+              activeTab === "english" ? "bg-blue-500/20 text-blue-300 border border-blue-500/40" : "text-slate-400 hover:text-white"
+            }`}
+          >
+            English
+          </button>
+        </div>
+
+        {/* Dual Live Display Cards */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+          {/* LEFT: Urdu */}
+          <div
+            className={`flex flex-col bg-[#0e121b] border border-emerald-500/30 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl relative overflow-hidden ${
+              activeTab === "english" ? "hidden sm:flex" : "flex"
+            }`}
+          >
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400" />
+                <h2 className="font-semibold text-slate-200 text-sm sm:text-base">
+                  Urdu Voice Stream (اردو تقریر)
+                </h2>
+              </div>
+              <span className="text-[10px] sm:text-xs font-mono font-medium px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Input
+              </span>
+            </div>
+
+            <div className="flex-1 min-h-[140px] sm:min-h-[180px] flex flex-col justify-center py-4 sm:py-6">
+              {currentUrdu ? (
+                <p
+                  dir="rtl"
+                  className="text-xl sm:text-2xl md:text-3xl font-medium leading-relaxed text-right text-emerald-300 font-serif tracking-wide break-words"
+                >
+                  {currentUrdu}
+                </p>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-center text-slate-500 gap-2">
+                  <Radio className="w-6 h-6 sm:w-8 sm:h-8 opacity-40 text-emerald-400" />
+                  <p className="text-xs sm:text-sm px-2">
+                    {isRecording
+                      ? "Listening... Aap jo bolenge yahan Urdu mein likha aayega..."
+                      : "Mic dabayein aur Urdu mein bolna shuru karein."}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] sm:text-xs text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> Speech Recognition
+              </span>
+              {currentUrdu && (
+                <button
+                  onClick={() => copyText(currentUrdu, "current-urdu")}
+                  className="flex items-center gap-1 text-slate-400 hover:text-emerald-400 transition py-1 px-2 rounded-lg active:bg-slate-800"
+                >
+                  {copiedId === "current-urdu" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  Copy
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT: English */}
+          <div
+            className={`flex flex-col bg-[#0e121b] border border-blue-500/30 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-xl relative overflow-hidden ${
+              activeTab === "urdu" ? "hidden sm:flex" : "flex"
+            }`}
+          >
+            <div className="flex items-center justify-between pb-3.5 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shadow-sm shadow-blue-400" />
+                <h2 className="font-semibold text-slate-200 text-sm sm:text-base">
+                  Real-Time English Translation
+                </h2>
+              </div>
+              <span className="text-[10px] sm:text-xs font-mono font-medium px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                Output
+              </span>
+            </div>
+
+            <div className="flex-1 min-h-[140px] sm:min-h-[180px] flex flex-col justify-center py-4 sm:py-6">
+              {currentEnglish ? (
+                <div className="space-y-4">
+                  <p className="text-xl sm:text-2xl md:text-3xl font-medium leading-relaxed text-blue-300 break-words">
+                    {currentEnglish}
+                  </p>
+
+                  <div className="pt-2 border-t border-slate-800/60 flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1 mr-1">
+                      <Bot className="w-3 h-3 text-emerald-400" /> Ask AI:
+                    </span>
+                    <button
+                      onClick={() => sendToChatGPT(currentEnglish)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[#10a37f]/15 hover:bg-[#10a37f]/25 text-[#10a37f] border border-[#10a37f]/30 text-xs font-medium flex items-center gap-1.5 transition active:scale-95"
+                      title="Send as prompt to ChatGPT"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#10a37f]" />
+                      ChatGPT <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </button>
+                    <button
+                      onClick={() => sendToGemini(currentEnglish)}
+                      className="px-2.5 py-1.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 border border-blue-500/30 text-xs font-medium flex items-center gap-1.5 transition active:scale-95"
+                      title="Send as prompt to Google Gemini"
+                    >
+                      <Sparkles className="w-3 h-3 text-blue-400" />
+                      Gemini <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </button>
+                    <button
+                      onClick={() => sendToClaude(currentEnglish)}
+                      className="px-2.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-medium flex items-center gap-1.5 transition active:scale-95"
+                      title="Send as prompt to Claude AI"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      Claude <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-center text-slate-500 gap-2">
+                  <ArrowRightLeft className="w-6 h-6 sm:w-8 sm:h-8 opacity-40 text-blue-400" />
+                  <p className="text-xs sm:text-sm px-2">
+                    {isRecording
+                      ? "Translating in real-time..."
+                      : "English translation will appear here simultaneously."}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] sm:text-xs text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-blue-400" /> Real-Time Stream
+              </span>
+              {currentEnglish && (
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <button
+                    onClick={() => speakEnglish(currentEnglish)}
+                    className="flex items-center gap-1 text-slate-400 hover:text-blue-400 transition py-1 px-2 rounded-lg active:bg-slate-800"
+                    title="Speak Aloud"
+                  >
+                    <Volume2 className="w-4 h-4" /> Speak
+                  </button>
+                  <button
+                    onClick={() => copyText(currentEnglish, "current-en")}
+                    className="flex items-center gap-1 text-slate-400 hover:text-blue-400 transition py-1 px-2 rounded-lg active:bg-slate-800"
+                  >
+                    {copiedId === "current-en" ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    Copy
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* SQLite Database History Section */}
+        <section className="bg-[#0e121b] border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-8 flex flex-col gap-4 sm:gap-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 sm:pb-4 border-b border-slate-800/90">
+            <div className="flex items-center gap-2.5">
+              <Database className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 flex-shrink-0" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-base sm:text-lg text-white">Database History</h3>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+                    SQLite (boltranslate.db)
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs text-slate-400">
+                  Permanently stored translations with favorites and deletion
+                </p>
+              </div>
+            </div>
+
+            {/* Filter & Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+              <div className="flex rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-xs">
+                <button
+                  onClick={() => setHistoryFilter("all")}
+                  className={`px-2.5 py-1 rounded-md transition ${
+                    historyFilter === "all" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  All ({history.length})
+                </button>
+                <button
+                  onClick={() => setHistoryFilter("favorites")}
+                  className={`px-2.5 py-1 rounded-md flex items-center gap-1 transition ${
+                    historyFilter === "favorites" ? "bg-amber-500/20 text-amber-300 font-medium border border-amber-500/30" : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                  Starred ({history.filter((i) => i.isFavorite).length})
+                </button>
+              </div>
+
+              <button
+                onClick={exportHistory}
+                disabled={displayedHistory.length === 0}
+                className="px-3 py-1.5 rounded-xl bg-slate-800/80 active:bg-slate-700 text-xs font-medium text-slate-200 border border-slate-700/60 flex items-center justify-center gap-1.5 transition disabled:opacity-40"
+              >
+                <Download className="w-3.5 h-3.5" /> Export
+              </button>
+              <button
+                onClick={clearAllHistory}
+                disabled={history.length === 0}
+                className="px-3 py-1.5 rounded-xl bg-slate-800/80 active:bg-red-500/20 text-xs font-medium text-slate-200 hover:text-red-400 border border-slate-700/60 flex items-center justify-center gap-1.5 transition disabled:opacity-40"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Clear DB
+              </button>
+            </div>
+          </div>
+
+          {/* History List */}
+          <div className="flex flex-col gap-3 max-h-[420px] overflow-y-auto pr-1">
+            {displayedHistory.length === 0 ? (
+              <div className="text-center py-8 sm:py-12 text-slate-500 text-xs sm:text-sm">
+                {historyFilter === "favorites"
+                  ? "No starred translations yet. Click the star icon on any record to bookmark it!"
+                  : "Database is currently empty. Speak in Urdu to create permanent records!"}
+              </div>
+            ) : (
+              displayedHistory.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-[#121622] hover:bg-[#151a28] border border-slate-800 hover:border-slate-700 rounded-xl sm:rounded-2xl p-3.5 sm:p-4 transition-all duration-200 flex flex-col gap-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
+                        {item.timestamp}
+                      </span>
+                      {item.isFavorite && (
+                        <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                          <Star className="w-2.5 h-2.5 fill-amber-400" /> Starred
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Action Buttons: Star, Speak, Copy, Delete */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => toggleFavorite(item.id)}
+                        className={`p-1.5 rounded-lg border transition ${
+                          item.isFavorite
+                            ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                            : "bg-slate-800/80 border-slate-700/60 text-slate-400 hover:text-amber-400"
+                        }`}
+                        title={item.isFavorite ? "Unstar" : "Star as favorite"}
+                      >
+                        <Star className={`w-3.5 h-3.5 ${item.isFavorite ? "fill-amber-400" : ""}`} />
+                      </button>
+                      <button
+                        onClick={() => speakEnglish(item.englishText)}
+                        className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 transition"
+                        title="Listen"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => copyText(item.englishText, item.id)}
+                        className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 transition"
+                        title="Copy English"
+                      >
+                        {copiedId === item.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => deleteRecord(item.id)}
+                        className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition"
+                        title="Delete from Database"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p dir="rtl" className="text-sm sm:text-base text-emerald-300/90 font-serif text-right break-words">
+                    {item.urduText}
+                  </p>
+
+                  <p className="text-xs sm:text-sm font-medium text-blue-300 break-words">
+                    {item.englishText}
+                  </p>
+
+                  <div className="pt-2 border-t border-slate-800/70 flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] text-slate-500">Prompt to:</span>
+                    <button
+                      onClick={() => sendToChatGPT(item.englishText)}
+                      className="px-2 py-0.5 rounded-md bg-[#10a37f]/10 hover:bg-[#10a37f]/20 text-[#10a37f] border border-[#10a37f]/20 text-[11px] font-medium flex items-center gap-1 transition"
+                    >
+                      ChatGPT
+                    </button>
+                    <button
+                      onClick={() => sendToGemini(item.englishText)}
+                      className="px-2 py-0.5 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 text-[11px] font-medium flex items-center gap-1 transition"
+                    >
+                      Gemini
+                    </button>
+                    <button
+                      onClick={() => sendToClaude(item.englishText)}
+                      className="px-2 py-0.5 rounded-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 text-[11px] font-medium flex items-center gap-1 transition"
+                    >
+                      Claude
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </main>
+
+      <footer className="border-t border-slate-800/80 bg-[#0b0d13] py-5 text-center text-[11px] sm:text-xs text-slate-500 px-4">
+        <p>
+          BolTranslate &bull; Built for Aurangzaib Bhai &bull; Powered by Whisper AI, FastAPI &amp; SQLite
+        </p>
+      </footer>
+    </div>
+  );
+}
