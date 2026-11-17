@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useSession, signIn, signOut } from "next-auth/react";
 import {
   Mic,
@@ -26,6 +27,7 @@ import {
   LogOut,
   LogIn,
   User,
+  ShieldCheck,
 } from "lucide-react";
 
 interface TranslationItem {
@@ -412,28 +414,38 @@ export default function BolTranslatePage() {
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
             {/* Google OAuth Login / User Avatar */}
             {session?.user ? (
-              <div className="flex items-center gap-2 bg-[#121622] border border-slate-700/80 rounded-full py-1 pl-1 pr-2.5">
-                {session.user.image ? (
-                  <img
-                    src={session.user.image}
-                    alt={session.user.name || "User"}
-                    className="w-7 h-7 rounded-full object-cover border border-emerald-400/40"
-                  />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">
-                    <User className="w-3.5 h-3.5" />
-                  </div>
-                )}
-                <span className="text-xs font-medium text-slate-200 hidden sm:inline max-w-[100px] truncate">
-                  {session.user.name?.split(" ")[0]}
-                </span>
-                <button
-                  onClick={() => signOut()}
-                  className="p-1 rounded-full text-slate-400 hover:text-red-400 transition"
-                  title="Sign Out"
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/admin"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold transition"
+                  title="Admin Dashboard"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden xs:inline">Admin</span>
+                </Link>
+                <div className="flex items-center gap-2 bg-[#121622] border border-slate-700/80 rounded-full py-1 pl-1 pr-2.5">
+                  {session.user.image ? (
+                    <img
+                      src={session.user.image}
+                      alt={session.user.name || "User"}
+                      className="w-7 h-7 rounded-full object-cover border border-emerald-400/40"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs font-bold">
+                      <User className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                  <span className="text-xs font-medium text-slate-200 hidden sm:inline max-w-[100px] truncate">
+                    {session.user.name?.split(" ")[0]}
+                  </span>
+                  <button
+                    onClick={() => signOut()}
+                    className="p-1 rounded-full text-slate-400 hover:text-red-400 transition"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ) : (
               <button
