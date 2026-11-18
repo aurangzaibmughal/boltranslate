@@ -480,8 +480,8 @@ export default function BolTranslatePage() {
   const sendToGemini = (text?: string) => {
     const prompt = text || getActivePrompt();
     navigator.clipboard.writeText(prompt);
-    showToast("Prompt copied! Opening Google Gemini...");
-    window.open("https://gemini.google.com/app", "_blank");
+    showToast("Copied! Gemini mein Paste (Ctrl+V) karein");
+    window.open(`https://gemini.google.com/app?prompt=${encodeURIComponent(prompt)}`, "_blank");
   };
 
   const sendToClaude = (text?: string) => {
