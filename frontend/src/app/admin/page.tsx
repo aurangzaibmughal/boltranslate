@@ -128,7 +128,7 @@ export default function AdminDashboardPage() {
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Admin Portal</h1>
           <p className="text-xs text-slate-400 mb-6">
-            Yeh page sirf Aurangzaib Bhai (Super Admin) ke liye makhsoos hai. Baraye meherbani apne Admin Google Account se login karein.
+            Yeh page sirf Aurangzaib Mughal (Super Admin) ke liye makhsoos hai. Baraye meherbani apne Admin Google Account se login karein.
           </p>
 
           {!session ? (

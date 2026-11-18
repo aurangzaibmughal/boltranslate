@@ -1032,7 +1032,7 @@ export default function BolTranslatePage() {
 
       <footer className="border-t border-slate-800/80 bg-[#0b0d13] py-5 text-center text-[11px] sm:text-xs text-slate-500 px-4">
         <p>
-          BolTranslate &bull; Built for Aurangzaib Bhai &bull; Powered by Whisper AI, FastAPI &amp; SQLite
+          BolTranslate &bull; Built for Aurangzaib Mughal &bull; Powered by Whisper AI, FastAPI &amp; SQLite
         </p>
       </footer>
     </div>
