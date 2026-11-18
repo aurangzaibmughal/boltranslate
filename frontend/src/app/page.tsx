@@ -172,67 +172,79 @@ export default function BolTranslatePage() {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const recognition = new SpeechRecognitionAPI() as any;
-      recognition.lang = speechLang; // "ur-PK" for Urdu
-      recognition.continuous = false;
+      recognition.lang = "ur-PK";
+      recognition.continuous = true;       // ✅ Continuous — stop nahi hoga
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
+      let fullTranscript = "";             // Poora accumulated text
+
       recognition.onstart = () => {
         setIsRecording(true);
-        setStatusMessage("Urdu mein bolein... (Web Speech API)");
+        fullTranscript = "";
+        setCurrentUrdu("");
+        setCurrentEnglish("");
+        setStatusMessage("🎤 Urdu mein bolein... jab chahein STOP dabayein (60-100 sec tak bol saktay ho)");
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      recognition.onresult = async (event: any) => {
-        let urduTranscript = "";
+      recognition.onresult = (event: any) => {
+        let interimText = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          urduTranscript += event.results[i][0].transcript;
-        }
-        setCurrentUrdu(urduTranscript);
-
-        // If final result — translate via Google Translate API (free, no key needed)
-        if (event.results[event.results.length - 1].isFinal) {
-          setStatusMessage("Translating to English...");
-          try {
-            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ur&tl=en&dt=t&q=${encodeURIComponent(urduTranscript)}`;
-            const res = await fetch(url);
-            const json = await res.json();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const englishText: string = json[0].map((item: any) => item[0]).join("");
-            setCurrentEnglish(englishText);
-            setStatusMessage("Translation complete! AI buttons ready.");
-            commitNewRecord(urduTranscript, englishText);
-          } catch {
-            setCurrentEnglish("[Translation error — check internet]");
-            setStatusMessage("Translation failed. Try again.");
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            fullTranscript += transcript + " ";  // Final parts add karo
+          } else {
+            interimText += transcript;           // Interim real-time
           }
         }
+        // Live Urdu display (final + interim)
+        setCurrentUrdu((fullTranscript + interimText).trim());
       };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       recognition.onerror = (event: any) => {
         console.error("Speech error:", event.error);
-        setIsRecording(false);
         if (event.error === "not-allowed") {
           alert("Microphone permission denied. Browser settings mein allow karein.");
-        } else {
-          setStatusMessage(`Error: ${event.error}. Dobara try karein.`);
+          setIsRecording(false);
         }
+        // "no-speech" ignore karo — continuous mode mein normal hai
       };
 
-      recognition.onend = () => {
+      // onend: jab stop dabaya jaye — translate karo
+      recognition.onend = async () => {
         setIsRecording(false);
         setAudioLevel(new Array(20).fill(10));
+        const finalText = fullTranscript.trim();
+        if (!finalText) {
+          setStatusMessage("Koi awaaz nahi aayi. Dobara try karein.");
+          return;
+        }
+        setStatusMessage("⏳ Translating to English...");
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ur&tl=en&dt=t&q=${encodeURIComponent(finalText)}`;
+          const res = await fetch(url);
+          const json = await res.json();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const englishText: string = json[0].map((item: any) => item[0]).join("");
+          setCurrentEnglish(englishText);
+          setStatusMessage("✅ Translation ready! AI buttons dabayein.");
+          commitNewRecord(finalText, englishText);
+        } catch {
+          setCurrentEnglish("[Translation error — check internet]");
+          setStatusMessage("Translation failed. Try again.");
+        }
       };
 
       speechRecRef.current = recognition;
       recognition.start();
 
-      // Animate waveform while recording
+      // Waveform animation — 120 seconds tak (2 minutes)
       const fakeWave = setInterval(() => {
         setAudioLevel(Array.from({ length: 20 }, () => Math.random() * 70 + 10));
       }, 100);
-      setTimeout(() => clearInterval(fakeWave), 10000);
+      setTimeout(() => clearInterval(fakeWave), 120000);
       return;
     }
 
