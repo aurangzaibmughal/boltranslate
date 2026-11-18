@@ -488,7 +488,7 @@ export default function BolTranslatePage() {
     const prompt = text || getActivePrompt();
     navigator.clipboard.writeText(prompt);
     showToast("Prompt copied! Opening Claude AI...");
-    window.open("https://claude.ai/new", "_blank");
+    window.open(`https://claude.ai/new?q=${encodeURIComponent(prompt)}`, "_blank");
   };
 
   const formatTime = (seconds: number) => {
