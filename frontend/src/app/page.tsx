@@ -56,24 +56,34 @@ export default function BolTranslatePage() {
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [statusMessage, setStatusMessage] = useState("Tap mic to speak in Urdu");
 
+  const [isMobileMode, setIsMobileMode] = useState(false);
+  const [speechLang, setSpeechLang] = useState<"ur-PK" | "ur">("ur-PK");
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const speechRecRef = useRef<{ stop: () => void } | null>(null);
 
-  // Auto-detect backend host for PC & Mobile
+  // Auto-detect backend host & mobile mode
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.hostname) {
       const host = window.location.hostname;
       setBackendUrl(`ws://${host}:8000/ws`);
       setApiBaseUrl(`http://${host}:8000`);
+
+      // Mobile detection — use Web Speech API if not on localhost
+      const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isLocal = host === "localhost" || host === "127.0.0.1";
+      setIsMobileMode(isMobile || !isLocal);
     }
   }, []);
 
   // Fetch history from Next.js Turso API
   const loadHistoryFromDB = async () => {
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       const res = await fetch("/api/history");
       if (res.ok) {
@@ -95,6 +105,7 @@ export default function BolTranslatePage() {
   // WebSocket Connection
   useEffect(() => {
     let ws: WebSocket;
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       ws = new WebSocket(backendUrl);
       ws.onopen = () => {
@@ -102,7 +113,8 @@ export default function BolTranslatePage() {
         setStatusMessage("Connected to Python AI Engine & SQLite DB");
       };
       ws.onmessage = (event) => {
-        try {
+        // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
+    try {
           const data = JSON.parse(event.data);
           if (data.urdu) setCurrentUrdu(data.urdu);
           if (data.english) setCurrentEnglish(data.english);
@@ -146,8 +158,85 @@ export default function BolTranslatePage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Start Mic
+  // Start Mic — Mobile uses Web Speech API, PC uses WebSocket + Whisper
   const startRecording = async () => {
+    // ── MOBILE / No-backend mode: use browser's built-in Web Speech API ──
+    if (isMobileMode || !isConnected) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const SpeechRecognitionAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+      if (!SpeechRecognitionAPI) {
+        alert("Aapka browser Speech Recognition support nahi karta. Chrome ya Edge use karein.");
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const recognition = new SpeechRecognitionAPI() as any;
+      recognition.lang = speechLang; // "ur-PK" for Urdu
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        setStatusMessage("Urdu mein bolein... (Web Speech API)");
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = async (event: any) => {
+        let urduTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          urduTranscript += event.results[i][0].transcript;
+        }
+        setCurrentUrdu(urduTranscript);
+
+        // If final result — translate via Google Translate API (free, no key needed)
+        if (event.results[event.results.length - 1].isFinal) {
+          setStatusMessage("Translating to English...");
+          try {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ur&tl=en&dt=t&q=${encodeURIComponent(urduTranscript)}`;
+            const res = await fetch(url);
+            const json = await res.json();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const englishText: string = json[0].map((item: any) => item[0]).join("");
+            setCurrentEnglish(englishText);
+            setStatusMessage("Translation complete! AI buttons ready.");
+            commitNewRecord(urduTranscript, englishText);
+          } catch {
+            setCurrentEnglish("[Translation error — check internet]");
+            setStatusMessage("Translation failed. Try again.");
+          }
+        }
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onerror = (event: any) => {
+        console.error("Speech error:", event.error);
+        setIsRecording(false);
+        if (event.error === "not-allowed") {
+          alert("Microphone permission denied. Browser settings mein allow karein.");
+        } else {
+          setStatusMessage(`Error: ${event.error}. Dobara try karein.`);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+        setAudioLevel(new Array(20).fill(10));
+      };
+
+      speechRecRef.current = recognition;
+      recognition.start();
+
+      // Animate waveform while recording
+      const fakeWave = setInterval(() => {
+        setAudioLevel(Array.from({ length: 20 }, () => Math.random() * 70 + 10));
+      }, 100);
+      setTimeout(() => clearInterval(fakeWave), 10000);
+      return;
+    }
+
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -200,6 +289,12 @@ export default function BolTranslatePage() {
 
   // Stop Recording
   const stopRecording = () => {
+    // Stop Web Speech API if active
+    if (speechRecRef.current) {
+      speechRecRef.current.stop();
+      speechRecRef.current = null;
+    }
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
       mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
@@ -247,6 +342,7 @@ export default function BolTranslatePage() {
 
     setHistory((prev) => [optimisticItem, ...prev]);
 
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       const res = await fetch("/api/history", {
         method: "POST",
@@ -274,6 +370,7 @@ export default function BolTranslatePage() {
       prev.map((item) => (item.id === id ? { ...item, isFavorite: !item.isFavorite } : item))
     );
 
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       await fetch(`/api/history?id=${id}`, { method: "PATCH" });
     } catch (e) {
@@ -286,6 +383,7 @@ export default function BolTranslatePage() {
     setHistory((prev) => prev.filter((item) => item.id !== id));
     showToast("Translation deleted from Cloud DB");
 
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       await fetch(`/api/history?id=${id}`, { method: "DELETE" });
     } catch (e) {
@@ -299,6 +397,7 @@ export default function BolTranslatePage() {
     setHistory([]);
     showToast("Cloud Database history cleared");
 
+    // ── PC / Backend mode: MediaRecorder + WebSocket + Whisper AI ──
     try {
       await fetch("/api/history", { method: "DELETE" });
     } catch (e) {
