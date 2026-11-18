@@ -158,7 +158,7 @@ export default function BolTranslatePage() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  // Start Mic — Mobile uses Web Speech API, PC uses WebSocket + Whisper
+  // Start Mic — Mobile uses Web Speech API with auto-restart, PC uses WebSocket + Whisper
   const startRecording = async () => {
     // ── MOBILE / No-backend mode: use browser's built-in Web Speech API ──
     if (isMobileMode || !isConnected) {
@@ -170,81 +170,109 @@ export default function BolTranslatePage() {
         return;
       }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const recognition = new SpeechRecognitionAPI() as any;
-      recognition.lang = "ur-PK";
-      recognition.continuous = true;       // ✅ Continuous — stop nahi hoga
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+      let fullTranscript = "";        // Poora accumulated text across restarts
+      let userStopped = false;        // ✅ Track: kya user ne khud STOP dabaya?
+      let waveInterval: ReturnType<typeof setInterval> | null = null;
 
-      let fullTranscript = "";             // Poora accumulated text
+      const startRecognitionSession = () => {
+        if (userStopped) return;      // User ne stop kiya — restart mat karo
 
-      recognition.onstart = () => {
-        setIsRecording(true);
-        fullTranscript = "";
-        setCurrentUrdu("");
-        setCurrentEnglish("");
-        setStatusMessage("🎤 Urdu mein bolein... jab chahein STOP dabayein (60-100 sec tak bol saktay ho)");
-      };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const recognition = new SpeechRecognitionAPI() as any;
+        recognition.lang = "ur-PK";
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      recognition.onresult = (event: any) => {
-        let interimText = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            fullTranscript += transcript + " ";  // Final parts add karo
-          } else {
-            interimText += transcript;           // Interim real-time
+        recognition.onstart = () => {
+          if (!isRecording) {
+            setIsRecording(true);
+            setStatusMessage("🎤 Urdu bolein... STOP dabane tak recording chalu rahegi!");
           }
-        }
-        // Live Urdu display (final + interim)
-        setCurrentUrdu((fullTranscript + interimText).trim());
-      };
+          // Waveform animation
+          if (!waveInterval) {
+            waveInterval = setInterval(() => {
+              setAudioLevel(Array.from({ length: 20 }, () => Math.random() * 70 + 10));
+            }, 100);
+          }
+        };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      recognition.onerror = (event: any) => {
-        console.error("Speech error:", event.error);
-        if (event.error === "not-allowed") {
-          alert("Microphone permission denied. Browser settings mein allow karein.");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onresult = (event: any) => {
+          let interimText = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const t = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              fullTranscript += t + " ";
+            } else {
+              interimText += t;
+            }
+          }
+          // Live display — final + interim
+          setCurrentUrdu((fullTranscript + interimText).trim());
+        };
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onerror = (event: any) => {
+          if (event.error === "not-allowed") {
+            userStopped = true;
+            setIsRecording(false);
+            alert("Microphone permission denied. Browser settings mein allow karein.");
+          }
+          // "no-speech", "aborted" etc. — ignore karo, onend auto-restart karega
+        };
+
+        recognition.onend = async () => {
+          // ✅ Agar user ne STOP nahi dabaya — foran restart karo!
+          if (!userStopped) {
+            setTimeout(() => startRecognitionSession(), 150); // 150ms baad restart
+            return;
+          }
+
+          // User ne STOP dabaya — ab translate karo
+          if (waveInterval) { clearInterval(waveInterval); waveInterval = null; }
           setIsRecording(false);
-        }
-        // "no-speech" ignore karo — continuous mode mein normal hai
+          setAudioLevel(new Array(20).fill(10));
+
+          const finalText = fullTranscript.trim();
+          if (!finalText) {
+            setStatusMessage("Koi awaaz nahi aayi. Dobara try karein.");
+            return;
+          }
+
+          setStatusMessage("⏳ Translating to English...");
+          try {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ur&tl=en&dt=t&q=${encodeURIComponent(finalText)}`;
+            const res = await fetch(url);
+            const json = await res.json();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const englishText: string = json[0].map((item: any) => item[0]).join("");
+            setCurrentEnglish(englishText);
+            setStatusMessage("✅ Translation ready! AI buttons dabayein.");
+            commitNewRecord(finalText, englishText);
+          } catch {
+            setCurrentEnglish("[Translation error — check internet]");
+            setStatusMessage("Translation failed. Try again.");
+          }
+        };
+
+        // ✅ Store stop function — STOP button is ne call karega
+        speechRecRef.current = {
+          stop: () => {
+            userStopped = true;
+            recognition.stop();
+          }
+        };
+
+        recognition.start();
       };
 
-      // onend: jab stop dabaya jaye — translate karo
-      recognition.onend = async () => {
-        setIsRecording(false);
-        setAudioLevel(new Array(20).fill(10));
-        const finalText = fullTranscript.trim();
-        if (!finalText) {
-          setStatusMessage("Koi awaaz nahi aayi. Dobara try karein.");
-          return;
-        }
-        setStatusMessage("⏳ Translating to English...");
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=ur&tl=en&dt=t&q=${encodeURIComponent(finalText)}`;
-          const res = await fetch(url);
-          const json = await res.json();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const englishText: string = json[0].map((item: any) => item[0]).join("");
-          setCurrentEnglish(englishText);
-          setStatusMessage("✅ Translation ready! AI buttons dabayein.");
-          commitNewRecord(finalText, englishText);
-        } catch {
-          setCurrentEnglish("[Translation error — check internet]");
-          setStatusMessage("Translation failed. Try again.");
-        }
-      };
-
-      speechRecRef.current = recognition;
-      recognition.start();
-
-      // Waveform animation — 120 seconds tak (2 minutes)
-      const fakeWave = setInterval(() => {
-        setAudioLevel(Array.from({ length: 20 }, () => Math.random() * 70 + 10));
-      }, 100);
-      setTimeout(() => clearInterval(fakeWave), 120000);
+      // Reset state
+      fullTranscript = "";
+      userStopped = false;
+      setCurrentUrdu("");
+      setCurrentEnglish("");
+      startRecognitionSession();
       return;
     }
 
