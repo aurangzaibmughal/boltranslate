@@ -28,6 +28,9 @@ import {
   LogIn,
   User,
   ShieldCheck,
+  Keyboard,
+  Send,
+  Wand2,
 } from "lucide-react";
 
 interface TranslationItem {
@@ -55,6 +58,10 @@ export default function BolTranslatePage() {
   const [backendUrl, setBackendUrl] = useState("ws://localhost:8000/ws");
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:8000");
   const [statusMessage, setStatusMessage] = useState("Tap mic to speak in Urdu");
+
+  const [inputMode, setInputMode] = useState<"voice" | "typing">("voice");
+  const [romanUrduText, setRomanUrduText] = useState("");
+  const [isTranslatingText, setIsTranslatingText] = useState(false);
 
   const [isMobileMode, setIsMobileMode] = useState(false);
   const [speechLang, setSpeechLang] = useState<"ur-PK" | "ur">("ur-PK");
@@ -369,6 +376,64 @@ export default function BolTranslatePage() {
     }, 1200);
   };
 
+  // Translate Roman Urdu to English & optionally auto-send to AI LLMs
+  const translateRomanUrdu = async (
+    textToTranslate?: string,
+    targetAI?: "chatgpt" | "claude" | "gemini"
+  ) => {
+    const text = (textToTranslate || romanUrduText).trim();
+    if (!text) {
+      showToast("Pehle Roman Urdu mein kuch likhein!");
+      return;
+    }
+
+    setIsTranslatingText(true);
+    setStatusMessage("Roman Urdu ko English mein translate kiya ja raha hai...");
+
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const englishText: string = json[0].map((item: any) => item[0]).join("").trim();
+
+      if (!englishText) {
+        showToast("Translation khali aayi. Dobara try karein.");
+        return;
+      }
+
+      setCurrentUrdu(text);
+      setCurrentEnglish(englishText);
+      setStatusMessage("✅ Translation ready! AI prompt tayyar hai.");
+
+      // Save to cloud DB
+      commitNewRecord(text, englishText);
+
+      // If specific AI target was requested, auto-open immediately!
+      if (targetAI === "chatgpt") {
+        navigator.clipboard.writeText(englishText);
+        showToast("Prompt ChatGPT par bhej diya!");
+        window.open(`https://chatgpt.com/?q=${encodeURIComponent(englishText)}`, "_blank");
+      } else if (targetAI === "claude") {
+        navigator.clipboard.writeText(englishText);
+        showToast("Prompt Claude par bhej diya!");
+        window.open(`https://claude.ai/new?q=${encodeURIComponent(englishText)}`, "_blank");
+      } else if (targetAI === "gemini") {
+        navigator.clipboard.writeText(englishText);
+        showToast("Copied! Gemini mein Paste (Ctrl+V) karein");
+        window.open(`https://gemini.google.com/app?prompt=${encodeURIComponent(englishText)}`, "_blank");
+      } else {
+        showToast("✅ English translation ready!");
+      }
+    } catch (err) {
+      console.error("Roman Urdu translation error:", err);
+      showToast("Translation mein masla aaya, internet check karein.");
+      setStatusMessage("Translation failed. Try again.");
+    } finally {
+      setIsTranslatingText(false);
+    }
+  };
+
   // Persist record to Turso Cloud DB
   const commitNewRecord = async (urdu: string, english: string) => {
     if (!urdu && !english) return;
@@ -400,8 +465,9 @@ export default function BolTranslatePage() {
       console.log("Save error:", e);
     }
 
-    setCurrentUrdu("");
-    setCurrentEnglish("");
+    // Keep text visible on screen for user convenience
+    // setCurrentUrdu("");
+    // setCurrentEnglish("");
   };
 
   // Toggle Favorite in Turso Cloud DB
@@ -684,6 +750,40 @@ export default function BolTranslatePage() {
         {/* Hero Section */}
         <section className="bg-gradient-to-b from-[#111522] to-[#0c0f17] border border-slate-800/90 rounded-2xl sm:rounded-3xl p-4 sm:p-8 shadow-2xl relative">
           <div className="flex flex-col items-center text-center gap-4 sm:gap-6">
+            
+            {/* Input Mode Selector: Voice vs Roman Urdu Typing */}
+            <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-inner">
+              <button
+                onClick={() => {
+                  setInputMode("voice");
+                  setStatusMessage(isRecording ? "Listening... Speak in Urdu" : "Tap mic to speak in Urdu");
+                }}
+                className={`flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition active:scale-95 ${
+                  inputMode === "voice"
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-400 text-black shadow-lg shadow-emerald-500/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Mic className="w-4 h-4" />
+                <span>Urdu Awaaz (Voice)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setInputMode("typing");
+                  setStatusMessage("Type in Roman Urdu to translate & send to AI");
+                }}
+                className={`flex items-center gap-2 px-3.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition active:scale-95 ${
+                  inputMode === "typing"
+                    ? "bg-gradient-to-r from-blue-500 to-cyan-400 text-white shadow-lg shadow-blue-500/20"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Keyboard className="w-4 h-4" />
+                <span>Roman Urdu Typing</span>
+              </button>
+            </div>
+
             <div className="inline-flex max-w-full items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-slate-900/90 border border-slate-700/70 text-[11px] sm:text-xs font-medium text-slate-300">
               <Activity className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 animate-pulse" />
               <span className="truncate">{statusMessage}</span>
@@ -694,63 +794,159 @@ export default function BolTranslatePage() {
               )}
             </div>
 
-            {/* Central Mic */}
-            <div className="relative flex items-center justify-center my-1 sm:my-2">
-              <div
-                className={`absolute w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 border-dashed transition-all duration-700 pointer-events-none ${
-                  isRecording
-                    ? "border-emerald-400/80 animate-spin-slow scale-110 shadow-lg shadow-emerald-500/20"
-                    : "border-slate-700/60"
-                }`}
-              />
+            {inputMode === "voice" ? (
+              <>
+                {/* Central Mic */}
+                <div className="relative flex items-center justify-center my-1 sm:my-2">
+                  <div
+                    className={`absolute w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 border-dashed transition-all duration-700 pointer-events-none ${
+                      isRecording
+                        ? "border-emerald-400/80 animate-spin-slow scale-110 shadow-lg shadow-emerald-500/20"
+                        : "border-slate-700/60"
+                    }`}
+                  />
 
-              {isRecording && (
-                <div className="absolute w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-r from-emerald-500 to-blue-500 blur-xl opacity-60 animate-pulse pointer-events-none" />
-              )}
+                  {isRecording && (
+                    <div className="absolute w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-gradient-to-r from-emerald-500 to-blue-500 blur-xl opacity-60 animate-pulse pointer-events-none" />
+                  )}
 
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                className={`relative z-10 w-24 h-24 sm:w-28 sm:h-28 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-2xl touch-manipulation active:scale-95 group ${
-                  isRecording
-                    ? "bg-gradient-to-tr from-emerald-500 to-teal-400 text-black scale-105 shadow-emerald-500/50"
-                    : "bg-gradient-to-tr from-[#161c2b] to-[#1e2638] text-white hover:border-emerald-500/60 border border-slate-700 hover:shadow-emerald-500/20"
-                }`}
-                aria-label={isRecording ? "Stop recording" : "Start speaking in Urdu"}
-              >
-                {isRecording ? (
-                  <>
-                    <MicOff className="w-7 h-7 sm:w-9 sm:h-9 transition-transform" />
-                    <span className="text-[10px] sm:text-[11px] font-bold mt-1 tracking-wider uppercase">
-                      Stop
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Mic className="w-7 h-7 sm:w-9 sm:h-9 text-emerald-400 group-hover:text-emerald-300 transition-transform" />
-                    <span className="text-[10px] sm:text-[11px] font-semibold text-slate-300 group-hover:text-white mt-1 tracking-wider uppercase">
-                      Urdu Bolain
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
+                  <button
+                    onClick={isRecording ? stopRecording : startRecording}
+                    className={`relative z-10 w-24 h-24 sm:w-28 sm:h-28 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-2xl touch-manipulation active:scale-95 group ${
+                      isRecording
+                        ? "bg-gradient-to-tr from-emerald-500 to-teal-400 text-black scale-105 shadow-emerald-500/50"
+                        : "bg-gradient-to-tr from-[#161c2b] to-[#1e2638] text-white hover:border-emerald-500/60 border border-slate-700 hover:shadow-emerald-500/20"
+                    }`}
+                    aria-label={isRecording ? "Stop recording" : "Start speaking in Urdu"}
+                  >
+                    {isRecording ? (
+                      <>
+                        <MicOff className="w-7 h-7 sm:w-9 sm:h-9 transition-transform" />
+                        <span className="text-[10px] sm:text-[11px] font-bold mt-1 tracking-wider uppercase">
+                          Stop
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-7 h-7 sm:w-9 sm:h-9 text-emerald-400 group-hover:text-emerald-300 transition-transform" />
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-slate-300 group-hover:text-white mt-1 tracking-wider uppercase">
+                          Urdu Bolain
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
-            {/* Waveform */}
-            <div className="w-full max-w-xs sm:max-w-md h-12 sm:h-14 bg-slate-950/60 rounded-xl sm:rounded-2xl border border-slate-800/80 px-3 sm:px-4 flex items-center justify-center gap-1 sm:gap-1.5 shadow-inner">
-              {audioLevel.map((height, i) => (
-                <div
-                  key={i}
-                  style={{ height: `${height}%` }}
-                  className={`w-1.5 sm:w-2 rounded-full transition-all duration-75 ${
-                    isRecording
-                      ? i < 10
-                        ? "bg-gradient-to-t from-emerald-600 to-emerald-400"
-                        : "bg-gradient-to-t from-blue-600 to-cyan-400"
-                      : "bg-slate-800"
-                  }`}
-                />
-              ))}
-            </div>
+                {/* Waveform */}
+                <div className="w-full max-w-xs sm:max-w-md h-12 sm:h-14 bg-slate-950/60 rounded-xl sm:rounded-2xl border border-slate-800/80 px-3 sm:px-4 flex items-center justify-center gap-1 sm:gap-1.5 shadow-inner">
+                  {audioLevel.map((height, i) => (
+                    <div
+                      key={i}
+                      style={{ height: `${height}%` }}
+                      className={`w-1.5 sm:w-2 rounded-full transition-all duration-75 ${
+                        isRecording
+                          ? i < 10
+                            ? "bg-gradient-to-t from-emerald-600 to-emerald-400"
+                            : "bg-gradient-to-t from-blue-600 to-cyan-400"
+                          : "bg-slate-800"
+                      }`}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              /* Roman Urdu Typing UI */
+              <div className="w-full max-w-2xl flex flex-col gap-3.5 text-left animate-in fade-in duration-200">
+                <div className="relative">
+                  <textarea
+                    value={romanUrduText}
+                    onChange={(e) => setRomanUrduText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        translateRomanUrdu();
+                      }
+                    }}
+                    rows={3}
+                    placeholder="Roman Urdu ya Urdu mein yahan type karein... (Masalan: Mujhe digital marketing ke bare mein batao)"
+                    className="w-full p-4 rounded-2xl bg-[#0a0d15] border border-blue-500/40 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500/20 text-sm sm:text-base text-slate-100 placeholder-slate-500 outline-none resize-none transition shadow-inner font-sans"
+                  />
+                  {romanUrduText && (
+                    <button
+                      onClick={() => setRomanUrduText("")}
+                      className="absolute top-3 right-3 px-2 py-1 rounded-lg text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 transition text-xs"
+                      title="Clear text"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {/* Action Buttons: Translate + 1-Click AI dispatch */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <button
+                    onClick={() => translateRomanUrdu()}
+                    disabled={isTranslatingText || !romanUrduText.trim()}
+                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black font-bold text-xs sm:text-sm shadow-lg shadow-emerald-500/20 transition active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Wand2 className="w-4 h-4" />
+                    <span>{isTranslatingText ? "Translating..." : "English Translate Karein"}</span>
+                  </button>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-semibold text-slate-400">Direct to AI:</span>
+                    <button
+                      onClick={() => translateRomanUrdu(undefined, "chatgpt")}
+                      disabled={isTranslatingText || !romanUrduText.trim()}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#10a37f]/15 hover:bg-[#10a37f]/25 text-[#10a37f] border border-[#10a37f]/40 text-xs font-semibold transition active:scale-95 disabled:opacity-50"
+                      title="Translate to English & Open ChatGPT"
+                    >
+                      <Bot className="w-3.5 h-3.5" />
+                      <span>ChatGPT</span>
+                    </button>
+                    <button
+                      onClick={() => translateRomanUrdu(undefined, "claude")}
+                      disabled={isTranslatingText || !romanUrduText.trim()}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-semibold transition active:scale-95 disabled:opacity-50"
+                      title="Translate to English & Open Claude"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Claude</span>
+                    </button>
+                    <button
+                      onClick={() => translateRomanUrdu(undefined, "gemini")}
+                      disabled={isTranslatingText || !romanUrduText.trim()}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 border border-blue-500/40 text-xs font-semibold transition active:scale-95 disabled:opacity-50"
+                      title="Translate to English & Open Gemini"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Gemini</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Example pills */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-slate-400">
+                  <span className="text-slate-500">Misaal (Tap to try):</span>
+                  {[
+                    "Mujhe digital marketing ke bare mein batao",
+                    "Aik acha sa business plan bana do",
+                    "Python seekhne ka aasan tareeqa kya hai",
+                  ].map((example, i) => (
+                    <button
+                      key={i}
+                      onClick={() => {
+                        setRomanUrduText(example);
+                        translateRomanUrdu(example);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-emerald-400 border border-slate-800 transition truncate max-w-[210px] sm:max-w-none text-left"
+                    >
+                      &ldquo;{example}&rdquo;
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Save to Database action button */}
             {(currentUrdu || currentEnglish) && (
@@ -892,7 +1088,7 @@ export default function BolTranslatePage() {
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400" />
                 <h2 className="font-semibold text-slate-200 text-sm sm:text-base">
-                  Urdu Voice Stream (اردو تقریر)
+                  Urdu / Roman Urdu (اردو ان پٹ)
                 </h2>
               </div>
               <span className="text-[10px] sm:text-xs font-mono font-medium px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -903,8 +1099,12 @@ export default function BolTranslatePage() {
             <div className="flex-1 min-h-[140px] sm:min-h-[180px] flex flex-col justify-center py-4 sm:py-6">
               {currentUrdu ? (
                 <p
-                  dir="rtl"
-                  className="text-xl sm:text-2xl md:text-3xl font-medium leading-relaxed text-right text-emerald-300 font-serif tracking-wide break-words"
+                  dir={/[\u0600-\u06FF]/.test(currentUrdu) ? "rtl" : "ltr"}
+                  className={`text-xl sm:text-2xl md:text-3xl font-medium leading-relaxed text-emerald-300 break-words ${
+                    /[\u0600-\u06FF]/.test(currentUrdu)
+                      ? "text-right font-serif tracking-wide"
+                      : "text-left font-sans"
+                  }`}
                 >
                   {currentUrdu}
                 </p>
@@ -914,7 +1114,7 @@ export default function BolTranslatePage() {
                   <p className="text-xs sm:text-sm px-2">
                     {isRecording
                       ? "Listening... Aap jo bolenge yahan Urdu mein likha aayega..."
-                      : "Mic dabayein aur Urdu mein bolna shuru karein."}
+                      : "Mic se Urdu bolein ya Roman Urdu mein type karein."}
                   </p>
                 </div>
               )}
